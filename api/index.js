@@ -20,94 +20,95 @@ const fs = require('fs');
 app.use(cors());
 app.use(express.json());
 
-// Safer DB loading
-let db;
-let dbConnected = false;
+// Safer DB loading - Lazy Initialization
+let pool = null;
 
-try {
-    const mysql = require('mysql2');
-    const pool = mysql.createPool({
-        host: process.env.DB_HOST,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-        port: process.env.DB_PORT,
-        ssl: { rejectUnauthorized: false },
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0,
-        connectTimeout: 10000 // 10s timeout
-    });
-    db = pool.promise();
-    dbConnected = true;
-    console.log("Database configuration loaded successfully (Inlined).");
-} catch (error) {
-    console.error("Failed to load database configuration:", error);
-    dbConnected = false;
-}
+const getDb = async () => {
+    if (pool) return pool;
 
-// Helper to check DB
-const checkDb = (res) => {
-    if (!dbConnected) {
-        console.error("Attempted to access DB, but connection is failed.");
-        res.status(503).json({ error: 'Database service unavailable. Check server logs.' });
-        return false;
+    try {
+        const mysql = require('mysql2/promise');
+        pool = mysql.createPool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: process.env.DB_PORT,
+            ssl: { rejectUnauthorized: false },
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            connectTimeout: 10000 // 10s timeout
+        });
+        console.log("Database pool created.");
+
+        // Test connection
+        await pool.query('SELECT 1');
+        console.log("Database connection verified.");
+
+        return pool;
+    } catch (error) {
+        console.error("Failed to initialize database pool:", error);
+        pool = null; // Reset on failure
+        throw error;
     }
-    return true;
+};
+
+// DB Helper
+const withDb = async (res, callback) => {
+    try {
+        const db = await getDb();
+        await callback(db);
+    } catch (error) {
+        console.error("Database operation failed:", error);
+        res.status(503).json({ error: 'Database service unavailable.', details: error.message });
+    }
 };
 
 // Test routes
 app.get('/api/test', (req, res) => {
-    res.send('Backend API is running. DB Status: ' + (dbConnected ? 'Loaded' : 'FAILED'));
+    const envStatus = {
+        DB_HOST: !!process.env.DB_HOST,
+        DB_USER: !!process.env.DB_USER,
+        PORT: process.env.PORT
+    };
+    res.json({ message: 'Backend API is running', env: envStatus });
 });
 
 app.get('/api/health', async (req, res) => {
-    if (!checkDb(res)) return;
-    try {
+    await withDb(res, async (db) => {
         await db.query('SELECT 1');
         res.json({ status: 'ok', db: 'connected' });
-    } catch (error) {
-        console.error('Database health check failed:', error);
-        res.status(500).json({ status: 'error', message: 'Database connection failed', details: error.message });
-    }
+    });
 });
 
 app.post('/api/users', async (req, res) => {
-    if (!checkDb(res)) return;
-    const { username, password, email, phone } = req.body;
-    if (!username || !password || !email) {
-        return res.status(400).json({ error: 'Username, password, and email are required' });
-    }
-    try {
+    await withDb(res, async (db) => {
+        const { username, password, email, phone } = req.body;
+        if (!username || !password || !email) {
+            return res.status(400).json({ error: 'Username, password, and email are required' });
+        }
         const [result] = await db.query(
             'INSERT INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)',
             [username, password, email, phone]
         );
         res.status(201).json({ id: result.insertId, username, email, phone });
-    } catch (error) {
-        console.error('Error creating user:', error);
-        res.status(500).json({ error: 'Failed to create user' });
-    }
+    });
 });
 
 app.get('/api/users', async (req, res) => {
-    if (!checkDb(res)) return;
-    try {
+    await withDb(res, async (db) => {
         const [rows] = await db.query('SELECT id, username, email, phone FROM users');
         res.json(rows);
-    } catch (error) {
-        console.error('Error fetching users:', error);
-        res.status(500).json({ error: 'Failed to fetch users' });
-    }
+    });
 });
 
 app.post('/api/login', async (req, res) => {
-    if (!checkDb(res)) return;
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: 'Username and password are required' });
-    }
-    try {
+    await withDb(res, async (db) => {
+        const { username, password } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password are required' });
+        }
         const [rows] = await db.query(
             'SELECT * FROM users WHERE username = ? OR email = ?',
             [username, username]
@@ -120,10 +121,7 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid username or password' });
         }
         res.json({ message: 'Login successful', user: { id: user.id, username: user.username, email: user.email } });
-    } catch (error) {
-        console.error('Error logging in:', error);
-        res.status(500).json({ error: 'Failed to login' });
-    }
+    });
 });
 
 // --- TMDb Proxy ---
@@ -136,18 +134,17 @@ const MOCK_MOVIES = {
             poster_path: "/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg", backdrop_path: "/xg27NrXi7VXCGUr7MG75UqLl6Vg.jpg",
             title: "Mock Movie: The Beginning", vote_average: 8.5
         },
-        // ... (truncated for brevity, keeping it simple)
     ]
 };
 
 app.use('/api/tmdb', async (req, res) => {
     try {
         const endpoint = req.path;
-        const query = req.query;
-        const queryString = new URLSearchParams(query).toString();
-        const url = `${TMDB_BASE_URL}${endpoint}?${queryString}`;
-        console.log(`Proxying request to: ${url}`);
-        const response = await axios.get(url, { timeout: 2000 });
+        console.log(`Proxying TMDB request: ${endpoint}`);
+        const response = await axios.get(`${TMDB_BASE_URL}${endpoint}`, {
+            params: req.query,
+            timeout: 3000
+        });
         res.json(response.data);
     } catch (error) {
         console.error('TMDB Proxy Error:', error.message);
@@ -155,16 +152,20 @@ app.use('/api/tmdb', async (req, res) => {
     }
 });
 
-// Serve Frontend
-app.use(express.static(path.join(__dirname, '../client/dist')));
-app.get('*', (req, res) => {
-    const indexPath = path.join(__dirname, '../client/dist', 'index.html');
-    if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        res.status(404).send('Frontend build not found. Please check your build logs on Vercel.');
-    }
-});
+// Serve Frontend (Robust Safe-Guard)
+const clientPath = path.join(__dirname, '../client/dist');
+if (fs.existsSync(clientPath)) {
+    app.use(express.static(clientPath));
+    app.get('*', (req, res) => {
+        if (req.path.startsWith('/api')) return res.status(404).json({ error: 'API route not found' });
+        res.sendFile(path.join(clientPath, 'index.html'));
+    });
+} else {
+    console.warn(`Client build not found at ${clientPath}. Serving API only.`);
+    app.get('/', (req, res) => {
+        res.send('API is running. Frontend build not found.');
+    });
+}
 
 // Export app for Vercel
 module.exports = app;
