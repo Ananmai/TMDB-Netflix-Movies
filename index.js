@@ -186,11 +186,18 @@ app.use('/api/tmdb', async (req, res) => {
     }
 });
 
+const fs = require('fs');
+
 // Serve static assets in production
 app.use(express.static(path.join(__dirname, 'client/dist')));
 
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
+    const indexPath = path.join(__dirname, 'client/dist', 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).send('Frontend build not found. Please check your build logs on Vercel.');
+    }
 });
 
 const server = app.listen(port, () => {
