@@ -156,9 +156,9 @@ app.use('/api/tmdb', async (req, res) => {
 });
 
 // Serve Frontend
-app.use(express.static(path.join(__dirname, 'client/dist')));
+app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('*', (req, res) => {
-    const indexPath = path.join(__dirname, 'client/dist', 'index.html');
+    const indexPath = path.join(__dirname, '../client/dist', 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
