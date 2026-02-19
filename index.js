@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const db = require('./config/db');
 const axios = require('axios');
+const path = require('path');
 
 dotenv.config();
 
@@ -12,8 +13,8 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Test route
-app.get('/', (req, res) => {
+// Test route - MOVED to /api/test to avoid conflict with frontend
+app.get('/api/test', (req, res) => {
     res.send('Backend API is running');
 });
 
@@ -183,6 +184,13 @@ app.use('/api/tmdb', async (req, res) => {
         console.log('Serving MOCK DATA due to API failure.');
         res.json(MOCK_MOVIES);
     }
+});
+
+// Serve static assets in production
+app.use(express.static(path.join(__dirname, 'client/dist')));
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
 });
 
 const server = app.listen(port, () => {
