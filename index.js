@@ -153,9 +153,15 @@ app.get('*', (req, res) => {
     }
 });
 
-const server = app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-});
+// Export app for Vercel
+module.exports = app;
+
+// Only listen if run directly (not imported as a module)
+if (require.main === module) {
+    const server = app.listen(port, () => {
+        console.log(`Server is running on port ${port}`);
+    });
+}
 
 process.on('exit', (code) => {
     console.log(`Process exiting with code: ${code}`);
