@@ -14,8 +14,6 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
-const path = require('path');
-const fs = require('fs');
 
 app.use(cors());
 app.use(express.json());
@@ -152,20 +150,11 @@ app.use('/api/tmdb', async (req, res) => {
     }
 });
 
-// Serve Frontend (Robust Safe-Guard)
-const clientPath = path.join(__dirname, '../client/dist');
-if (fs.existsSync(clientPath)) {
-    app.use(express.static(clientPath));
-    app.get('*', (req, res) => {
-        if (req.path.startsWith('/api')) return res.status(404).json({ error: 'API route not found' });
-        res.sendFile(path.join(clientPath, 'index.html'));
-    });
-} else {
-    console.warn(`Client build not found at ${clientPath}. Serving API only.`);
-    app.get('/', (req, res) => {
-        res.send('API is running. Frontend build not found.');
-    });
-}
+
+// NOTE: Static files (React frontend) are served by Vercel's CDN via
+// outputDirectory in vercel.json. Do NOT serve them here.
+// Express only handles /api/* routes.
+
 
 // Global error handler - always return JSON, never let Vercel show HTML error
 // eslint-disable-next-line no-unused-vars
