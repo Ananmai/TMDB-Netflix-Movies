@@ -47,7 +47,8 @@ function App() {
       }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Something went wrong');
+        const msg = data.details ? `${data.error} (${data.details})` : data.error;
+        throw new Error(msg || 'Something went wrong');
       }
 
       if (isLogin) {
