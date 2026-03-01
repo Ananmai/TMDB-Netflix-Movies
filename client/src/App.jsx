@@ -26,7 +26,7 @@ function App() {
     setSuccess('');
 
     const endpoint = isLogin ? '/api/login' : '/api/users';
-    const url = `http://localhost:3000${endpoint}`;
+    const url = endpoint; // relative path - works on Vercel and locally via Vite proxy
 
     try {
       const response = await fetch(url, {
