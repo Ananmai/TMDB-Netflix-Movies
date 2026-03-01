@@ -37,7 +37,14 @@ function App() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      // Read as text first to avoid JSON parse crash on server errors
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Server error (${response.status}). Check Vercel logs or DB environment variables.`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Something went wrong');

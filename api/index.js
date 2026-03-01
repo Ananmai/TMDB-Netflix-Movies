@@ -167,6 +167,13 @@ if (fs.existsSync(clientPath)) {
     });
 }
 
+// Global error handler - always return JSON, never let Vercel show HTML error
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
+});
+
 // Export app for Vercel
 module.exports = app;
 
